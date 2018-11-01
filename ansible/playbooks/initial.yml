@@ -1,0 +1,63 @@
+- name: Allow sudo access for maintenance user
+  hosts: all
+  become: yes
+  become_user: root
+
+  vars_prompt:
+
+    - name: "maintenance_user"
+      prompt: "User account to be used as maintenance-account"
+      default: stahl
+      private: no
+
+  tasks:
+   
+    - name: Update apt cache
+      apt: update_cache=yes cache_valid_time=3600
+
+    - name: Install sudo
+      apt: name=sudo state=present
+      when: ansible_os_family == 'Debian'
+
+    - name: Add maintenance user to sudo group
+      command: adduser {{ maintenance_user }} sudo
+
+    - name: Add password-less sudo for maintenance user
+      lineinfile: dest=/etc/sudoers
+                  line="{{ maintenance_user }} ALL=(ALL) NOPASSWD:ALL"
+                  state=present
+                  create=yes
+                  validate='visudo -cf %s'
+
+    - name: Give maintenance user his authorized keys file
+      authorized_key:
+        user: "{{ maintenance_user }}"
+        key: "{{ lookup('file', '/home/{{ maintenance_user }}/.ssh/id_rsa.pub') }}"
+
+    - name: Copy maintanance ssh key for root account
+      authorized_key:
+        user: root
+        key: "{{ lookup('file', '/home/{{ maintenance_user }}/.ssh/id_rsa.pub') }}"
+
+
+    - name: Add github key
+      authorized_key:
+        user: "{{ maintenance_user }}"
+        key: "https://github.com/stahlnow.keys"
+
+    - name: Disable password based ssh login
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^PasswordAuthentication.*no'
+        line: 'PasswordAuthentication no'
+ 
+    - name: Enable root login without password
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: "^PermitRootLogin"
+        line: "PermitRootLogin without-password"
+
+    - name: restart sshd
+      service: name=sshd state=restarted
+
+    
